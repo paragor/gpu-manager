@@ -73,6 +73,7 @@ func NewContainerRuntimeManager(cgroupDriver, endpoint string, requestTimeout ti
 }
 
 func (m *containerRuntimeManager) GetPidsInContainers(containerID string) ([]int, error) {
+	containerID = m.sanitizeContainerID(containerID)
 	req := &criapi.ContainerStatusRequest{
 		ContainerId: containerID,
 	}
@@ -144,6 +145,7 @@ func readProcsFile(file string) ([]int, error) {
 }
 
 func (m *containerRuntimeManager) getCgroupName(pod *v1.Pod, containerID string) (string, error) {
+	containerID = m.sanitizeContainerID(containerID)
 	podQos := pod.Status.QOSClass
 	if len(podQos) == 0 {
 		podQos = qos.GetPodQOS(pod)
@@ -164,7 +166,11 @@ func (m *containerRuntimeManager) getCgroupName(pod *v1.Pod, containerID string)
 
 	switch m.cgroupDriver {
 	case "systemd":
-		return fmt.Sprintf("%s/%s-%s.scope", cgroupName.ToSystemd(), cgroup.SystemdPathPrefixOfRuntime(m.runtimeName), containerID), nil
+		runtimeName := m.runtimeName
+		if runtimeName == "containerd" {
+			runtimeName = "cri-containerd"
+		}
+		return fmt.Sprintf("%s/%s-%s.scope", cgroupName.ToSystemd(), cgroup.SystemdPathPrefixOfRuntime(runtimeName), containerID), nil
 	case "cgroupfs":
 		return fmt.Sprintf("%s/%s", cgroupName.ToCgroupfs(), containerID), nil
 	default:
@@ -174,6 +180,7 @@ func (m *containerRuntimeManager) getCgroupName(pod *v1.Pod, containerID string)
 }
 
 func (m *containerRuntimeManager) InspectContainer(containerID string) (*criapi.ContainerStatus, error) {
+	containerID = m.sanitizeContainerID(containerID)
 	req := &criapi.ContainerStatusRequest{
 		ContainerId: containerID,
 	}
@@ -190,3 +197,10 @@ func (m *containerRuntimeManager) InspectContainer(containerID string) (*criapi.
 }
 
 func (m *containerRuntimeManager) RuntimeName() string { return m.runtimeName }
+
+func (m *containerRuntimeManager) sanitizeContainerID(containerID string) string {
+	if strings.HasPrefix(containerID, "containerd-") {
+		containerID = strings.TrimPrefix(containerID, "containerd-")
+	}
+	return containerID
+}
